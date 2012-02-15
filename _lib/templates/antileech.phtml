@@ -1,0 +1,16 @@
+<div style="text-align: center; margin: auto">
+  <h1>File Download</h1>
+  <div style="width: 980px; margin: auto; font-size: 1.2em">
+    <strong>File</strong>: <?php echo htmlspecialchars($this->fileName) ?><br />
+    <strong>Size</strong>: <?php echo $this->longFileSize ?>
+    <br /><br />
+    
+    <?php if ($this->requireCaptcha == true): ?>
+    <?php echo $this->captchaHtml ?>
+    
+    <?php else: ?>
+    <span style="font-size: 24px"><a href="<?php echo $this->downloadUrl ?>">Proceed to Download</a></span><br /><br />
+    <?php endif; ?>
+    
+  </div>
+</div>
