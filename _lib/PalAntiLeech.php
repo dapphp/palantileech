@@ -19,11 +19,16 @@ class PalAntiLeech
     protected $_invalidFiles       = array();
     protected $_allowedReferrers   = array();
     protected $_allowEmptyReferrer = false;
+    protected $_allowDotFiles      = false;
     protected $_countDownloads     = true;
     protected $_requireCapthca     = false;
     
     protected static $_instance = null;
     protected $_view;
+    /** @var Zend_Controller_Request_Http */
+    protected $_request;
+    /** @var Zend_Config */
+    protected $_config;
     
     protected $_filePath;
     protected $_fileUri;
@@ -31,7 +36,7 @@ class PalAntiLeech
     
     protected function __construct($options = null)
     {
-    	// set incldue path, favor PAL_LIB_PATH (_lib)
+        // set incldue path, favor PAL_LIB_PATH (_lib)
         set_include_path(implode(PATH_SEPARATOR, array(
             realpath(PAL_LIB_PATH),
             get_include_path(),
@@ -64,6 +69,10 @@ class PalAntiLeech
             $this->_allowEmptyReferrer = $config->allowEmptyReferrer;
         }
         
+        if (isset($config->allowDotFiles)) {
+            $this->_allowDotFiles = $config->allowDotFiles;
+        }
+        
         if (isset($config->allowedReferrers)) {
             $this->_allowedReferrers = $config->allowedReferrers->toArray();
         }
@@ -72,10 +81,14 @@ class PalAntiLeech
             $this->_countDownloads = $config->countDownloads;
         }
         
-        // TODO: Captcha not yet implmented!
         if (isset($config->requireCaptcha)) {
             $this->_requireCapthca = $config->requireCaptcha;
         }
+        
+        $this->_config = $config;
+        
+        require_once 'Zend/Controller/Request/Http.php';
+        $this->_request = new Zend_Controller_Request_Http();
         
         require_once 'Zend/View.php';
         
@@ -114,7 +127,21 @@ class PalAntiLeech
             $s->serveAntiLeech();
         }
         
+        if ($s->_requireCapthca) {
+            require_once PAL_LIB_PATH . '/securimage/securimage.php';
+            
+            $captcha_id   = $s->getRequest()->getPost('challenge_id', '');
+            $captcha_code = $s->getRequest()->getPost('challenge_response', '');
+            
+            if (Securimage::checkByCaptchaId($captcha_id, $captcha_code) == false) {
+                $s->_view->assign('error', 'Incorrect captcha code entered, please try again.');
+                $s->serveAntiLeech();
+            }
+        }
+        
         $s->serveDownload($download);
+        
+        exit;
     }
     
     /**
@@ -141,12 +168,26 @@ class PalAntiLeech
              ->assign('fileSize', $size)
              ->assign('longFileSize', $this->getFileDisplaySize($size))
              ->assign('requireCaptcha', $this->_requireCapthca);
-             
+        
         if ($this->_requireCapthca) {
-        	// TODO: implement
-            $this->_view->assign('captchaHtml', 'captcha not supported');
+            require_once PAL_LIB_PATH . '/securimage/securimage.php';
+            
+            $options = array();
+            $options['code_length'] = (isset($this->_config->captchaCodeLength)) ?
+                                       $this->_config->captchaCodeLength         :
+                                       5;
+            
+            $options['charset']     = (isset($this->_config->captchaCharset) &&
+                                       strlen($this->_config->captchaCharset) > 0) ?
+                                       $this->_config->captchaCharset              :
+                                       'ABCDEFGHKMNPQRSTUVWXYZabcdefghkmnpqrstuvwxyz23456789';
+
+            $captcha_id = Securimage::getCaptchaId(true, $options);            
+            
+            $this->_view->assign('captchaId', $captcha_id);
+            $this->_view->assign('captchaImageUrl', $this->getHandlerUrlFromName('captcha', 'r=' . $captcha_id));
         }
-             
+        
         echo $this->_view->render('header.phtml')
             .$this->_view->render('antileech.phtml')
             .$this->_view->render('footer.phtml');
@@ -174,7 +215,7 @@ class PalAntiLeech
         
         $fp = fopen($download['path'], 'rb');
         while(!feof($fp)) {
-        	// TODO: throttling/bandwidth limiter?
+            // TODO: throttling/bandwidth limiter?
             echo fread($fp, 4096);
             flush();
         }
@@ -216,14 +257,25 @@ class PalAntiLeech
         return $file;
     }
     
-    protected function getHandlerFromUrl()
+    protected function getHandlerFromUrl(&$args = null)
     {
         $qs   = $_SERVER['QUERY_STRING'];
         $base = str_replace('index.php', '', $_SERVER['SCRIPT_NAME']);
         $uri  = str_replace($base, '', $_SERVER['REQUEST_URI']);
         $return = 0;
         
-        if ($uri == '?' . $qs) {
+        $parts = explode('&', $qs);
+        $qs = array_shift($parts);
+        
+        if ($args !== null) {
+            $args = array();
+            
+            if (sizeof($parts) > 0) {
+                parse_str(implode('&', $parts), $args);
+            }
+        }
+        
+        if ($uri == '?' . $qs || preg_match('/^\?' . preg_quote($qs) . '&/', $uri)) {
             return $qs;
         } else {
             return false;
@@ -235,9 +287,18 @@ class PalAntiLeech
         return $this->getHandlerFromUrl() !== false;
     }
     
+    protected function getHandlerUrlFromName($handler, $args = '')
+    {
+        if (strlen($args) > 0 && substr($args, 0, 1) != '&') $args = '&' . $args;
+        
+        return $this->getRequest()->getBaseUrl() . '/?' . $handler . $args;
+    }
+    
     protected function dispatchUrlHandler()
     {
-        $name  = ucwords(str_replace('_', ' ', $this->getHandlerFromUrl()));
+        $args  = array();
+        $name  = $this->getHandlerFromUrl($args);
+        $name  = ucwords(str_replace('_', ' ', $name));
         $class = 'Pal_UrlHandler_' . $name;
             
         $file = PAL_PATH . '/_urlhandlers/' . $name . '.php';
@@ -251,7 +312,7 @@ class PalAntiLeech
                 if (!$url instanceof Pal_UrlHandler_Interface) {
                     trigger_error("$class does not implement Pal_UrlHandler_Interface", E_USER_NOTICE);
                 } else {
-                    $return = $url->magic();
+                    $return = $url->magic($this, $args);
                 }
             }
         }
@@ -261,7 +322,7 @@ class PalAntiLeech
     
     protected function isSecurityViolation($file)
     {
-    	// disallow http(s) in filename/query string
+        // disallow http(s) in filename/query string
         if (preg_match('#https?://#i', $file)) {
             return true;
         }
@@ -271,11 +332,36 @@ class PalAntiLeech
             return true;
         }
         
+        if (strpos($file, "\x00") !== false) {
+            return true;
+        }
+        
+        if (strpos($file, '%00') !== false) {
+            return true;
+        }
+        
         return false;
     }
     
     protected function isValidFile($file)
     {
+        // check for paths like "/.file" or "/.directory/file.ext"
+        if ($this->_allowDotFiles == false) {
+            $pathParts = explode(DIRECTORY_SEPARATOR, $file);
+            foreach($pathParts as $part) {
+                if (strpos($part, '.') === 0) {
+                    return false;
+                }
+            }
+        }
+        
+        // check for disallowed files
+        foreach($this->_invalidFiles as $badFile) {
+            if (preg_match('/' . preg_quote($badFile) . '$/i', $file)) {
+                return false;
+            }
+        }
+        
         if (!is_readable($file)) {
             return false;
         } else if (is_dir($file)) {
@@ -284,12 +370,6 @@ class PalAntiLeech
             return false;
         } else if (preg_match('/_lib\//i', $file)) {
             return false;
-        } else {
-            foreach($this->_invalidFiles as $badFile) {
-                if (preg_match('/' . preg_quote($badFile) . '$/i', $file)) {
-                    return false;
-                }
-            }
         }
         
         return true;
@@ -330,6 +410,16 @@ class PalAntiLeech
         }
         
         return false;
+    }
+    
+    public function getRequest()
+    {
+        return $this->_request;
+    }
+    
+    public function getConfig()
+    {
+    	return $this->_config;
     }
     
     protected function getFileDisplaySize($size)

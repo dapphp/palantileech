@@ -16,20 +16,36 @@
 
 class Pal_UrlHandler_Captcha implements Pal_UrlHandler_Interface
 {
-    public function magic()
+    public function magic(PalAntiLeech &$pal, array $args = array())
     {
         require_once PAL_LIB_PATH . '/securimage/securimage.php';
         
-        $img = new Securimage();
-        $img->charset = 'ABCDEFGHKMNPQRSTUVWXYZabcdefghkmnopqrstuvwxyz23456789';
+        if (!isset($args['r'])) {
+            return 0;
+        }
+        
+        $id = $args['r'];
+        
+        $img = new Securimage(array('nosession' => true,
+                                    'captchaId' => $id,
+                                    'use_sqlite_db' => true));
+
         $img->perturbation = 0.87;
         $img->line_color = new Securimage_Color('#000');
         $img->noise_color = $img->text_color = $img->line_color;
-        $img->code_length = 4;
         $img->image_width = 150;
         $img->image_height = 55;
-        $img->noise_level = 2;
-        $img->num_lines = rand(1,3); 
+        $img->noise_level = rand(1,4);
+        $img->num_lines = rand(1,4);
+        $img->code_length = (isset($pal->getConfig()->captchaCodeLength)) ?
+                             $pal->getConfig()->captchaCodeLength         :
+                             5;
+        
+        $img->charset = (isset($pal->getConfig()->captchaCharset) &&
+        		         strlen($pal->getConfig()->captchaCharset) > 0) ?
+        		         $pal->getConfig()->captchaCharset              :
+        		         'ABCDEFGHKMNPQRSTUVWXYZabcdefghkmnpqrstuvwxyz23456789';
+        
         $img->show();
         
         return 1;

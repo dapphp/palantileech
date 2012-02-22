@@ -5,12 +5,38 @@
     <strong>Size</strong>: <?php echo $this->longFileSize ?>
     <br /><br />
     
-    <?php if ($this->requireCaptcha == true): ?>
-    <?php echo $this->captchaHtml ?>
+    <?php if (isset($this->error)): ?>
+    <div style="color:#f00; font-weight:bold"><?php echo $this->error ?></div><br />
+    <?php endif; ?>
     
+    <?php if ($this->requireCaptcha == true): ?>
+    <form method="post" action="<?php echo $this->downloadUrl ?>">
+        <img id="captcha" src="<?php echo $this->captchaImageUrl ?>" alt="Captcha Image" /><br />
+        <a href="#" onclick="refreshCaptcha(); return false">New Image</a><br />
+        <strong>Enter Code: </strong>
+        <input type="hidden" id="challenge_id" name="challenge_id" value="<?php echo $this->captchaId ?>" />
+        <input type="text" name="challenge_response" size="8" /><br /><br />
+        <input type="submit" value="Proceed to Download" />
+    </form>
     <?php else: ?>
     <span style="font-size: 24px"><a href="<?php echo $this->downloadUrl ?>">Proceed to Download</a></span><br /><br />
     <?php endif; ?>
     
   </div>
 </div>
+
+<script type="text/javascript">
+	function refreshCaptcha()
+	{
+		var cset = '1234567890abcdefghijlkmnopqrstuvwxyz';
+		var c    = '', r = 0;
+		
+		for (var i = 0; i < 40; ++i) {
+			r = Math.floor(Math.random() * cset.length);
+			c += cset.substring(r, r + 1);
+		}
+		
+		document.getElementById('challenge_id').value = c;
+		document.getElementById('captcha').src = '<?php echo preg_replace('/&r=[^\s]*$/i', '', $this->captchaImageUrl) ?>' + '&r=' + c;
+	}
+</script>

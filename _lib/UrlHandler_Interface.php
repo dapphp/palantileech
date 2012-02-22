@@ -15,9 +15,10 @@
  */
 
 interface Pal_UrlHandler_Interface
-{
+{	
     /**
      * The interface special URL handlers must implement
+     * @param array $args
      */
-    public function magic();
+    public function magic(PalAntiLeech &$pal, array $args = array());
 }
